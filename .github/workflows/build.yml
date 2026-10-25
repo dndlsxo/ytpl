@@ -1,0 +1,65 @@
+name: Build APK
+
+# main 브랜치에 올리거나, Actions 탭에서 'Run workflow'를 누르면 APK를 빌드합니다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # Release에 APK를 첨부하기 위해 필요
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.YTPL_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # (선택) 저장소 Secrets에 YTPL_KEYSTORE_BASE64 등을 넣으면 그 키로 서명
+      - name: Use signing key from secrets (optional)
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "YTPL_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          echo "YTPL_KEYSTORE_PASSWORD=${{ secrets.YTPL_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "YTPL_KEY_ALIAS=${{ secrets.YTPL_KEY_ALIAS }}" >> "$GITHUB_ENV"
+          echo "YTPL_KEY_PASSWORD=${{ secrets.YTPL_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+
+      - name: Build release APKs
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Rename APKs
+        run: |
+          mkdir -p dist
+          for f in app/build/outputs/apk/release/*.apk; do
+            n=$(basename "$f" .apk)
+            n=${n#app-}; n=${n%-release}
+            cp "$f" "dist/YTPL-${n}.apk"
+          done
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YTPL-apk
+          path: dist/*.apk
+
+      # 휴대폰 브라우저에서 바로 받을 수 있도록 Releases에도 올림
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: YTPL build ${{ github.run_number }}
+          body: |
+            대부분의 휴대폰은 **YTPL-arm64-v8a.apk** 를 받으면 됩니다.
+            모르겠으면 **YTPL-universal.apk** (용량이 큼, 모든 기기 호환).
+          files: dist/*.apk

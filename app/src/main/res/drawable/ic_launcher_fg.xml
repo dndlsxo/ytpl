@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 음표 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M44,34 L70,29 L70,60 A7,7 0 1,1 64,53.1 L64,40 L50,42.7 L50,66 A7,7 0 1,1 44,59.1 Z" />
+    <!-- 받침선 (저장) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M39,77 L69,77 L69,81 L39,81 Z" />
+</vector>
