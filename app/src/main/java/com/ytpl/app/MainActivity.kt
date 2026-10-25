@@ -48,6 +48,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -63,6 +64,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -334,18 +340,52 @@ private fun ProgressCard(s: UiState) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            // 1초마다 갱신 → 남은 시간이 실시간으로 줄어들고 경과 시간이 늘어남
+            val now by produceState(System.currentTimeMillis()) {
+                while (true) {
+                    value = System.currentTimeMillis()
+                    delay(1000)
+                }
+            }
             if (s.itemTotal > 0) {
-                Text("${s.itemIndex} / ${s.itemTotal}곡", style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${s.itemIndex} / ${s.itemTotal}곡",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${(s.overall * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 LinearProgressIndicator(progress = { s.overall }, modifier = Modifier.fillMaxWidth())
             } else {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
+
+            // 예상 시간
+            val remain = s.totalRemainingSec(now)
+            Row(Modifier.fillMaxWidth()) {
+                TimeStat("전체 남은 시간", remain?.let { formatDuration(it) } ?: "계산 중…", Modifier.weight(1f))
+                TimeStat("완료 예정", remain?.let { clockText(now + it * 1000) } ?: "-", Modifier.weight(1f))
+                TimeStat("경과", formatClock((now - s.jobStartedAt) / 1000), Modifier.weight(1f))
+            }
+            if (remain == null && s.itemTotal > 1) {
+                Text(
+                    "첫 곡을 받고 나면 예상 시간이 표시돼요",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             s.currentTrack?.let {
                 Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            val eta = if (s.etaSec > 0) " · 남은 시간 %d:%02d".format(s.etaSec / 60, s.etaSec % 60) else ""
+            val trackEta = if (s.etaSec > 0) " · ${formatClock(s.etaSec)} 남음" else ""
             Text(
-                "${s.stage} · 현재 곡 ${s.progress.toInt()}%$eta",
+                "${s.stage} · 현재 곡 ${s.progress.toInt()}%$trackEta",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -356,6 +396,23 @@ private fun ProgressCard(s: UiState) {
         }
     }
 }
+
+@Composable
+private fun TimeStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** 시각 → "오전 1:23" */
+private fun clockText(epochMs: Long): String =
+    Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("a h:mm", Locale.KOREAN))
 
 @Composable
 private fun ResultCard(r: JobResult) {
@@ -385,6 +442,13 @@ private fun ResultCard(r: JobResult) {
                     if (r.errors.isNotEmpty()) append(" · 실패 ${r.errors.size}곡")
                 }
             )
+            if (r.elapsedSec > 0) {
+                Text(
+                    "걸린 시간 ${formatClock(r.elapsedSec)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             r.hint?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             r.errors.take(5).forEach {
                 Text(

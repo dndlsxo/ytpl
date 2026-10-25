@@ -157,6 +157,10 @@ class DownloadService : Service() {
             .addOption("--cache-dir", File(cacheDir, "yt-dlp-cache").absolutePath)
             .addCommands(YtArgs.build(quality, url, outRoot, workDir, archive, doneFile))
 
+        // 이어받기 기록 수 → 앞으로 건너뛸 곡 수를 예상 시간에서 제외
+        val alreadyArchived = if (archive.exists()) archive.readLines().count { it.isNotBlank() } else 0
+        val estimator = EtaEstimator(alreadyArchived)
+
         val processId = "ytpl-${System.currentTimeMillis()}"
         currentProcessId = processId
         DownloadState.update {
@@ -164,6 +168,7 @@ class DownloadService : Service() {
                 running = true, result = null, playlistTitle = null,
                 itemIndex = 0, itemTotal = 0, currentTrack = null,
                 stage = "목록 확인 중…", progress = 0f, etaSec = 0, log = emptyList(),
+                jobStartedAt = System.currentTimeMillis(), estimatedEndAt = null,
             )
         }
 
@@ -186,6 +191,7 @@ class DownloadService : Service() {
                             DownloadState.update { it.copy(playlistTitle = ev.title) }
                         }
                         is OutputParser.Item -> {
+                            estimator.onItem(ev.index, ev.total, System.currentTimeMillis())
                             // 다음 곡으로 넘어갈 때 앞 곡(완성본)을 바로 음악 폴더로 옮김
                             saved += MediaPublisher.publishAll(this, outRoot)
                             DownloadState.update {
@@ -199,13 +205,19 @@ class DownloadService : Service() {
                         is OutputParser.Converting -> DownloadState.update {
                             it.copy(stage = "변환·커버 삽입 중", progress = 100f)
                         }
-                        is OutputParser.Skipped -> skipped++
+                        is OutputParser.Skipped -> {
+                            skipped++
+                            estimator.onSkipped()
+                        }
                         is OutputParser.Error -> errors += ev.message
                         null -> Unit
                     }
                     val isProgressLine = line.startsWith("[download]") && line.contains("% of")
+                    val now = System.currentTimeMillis()
+                    val endAt = estimator.remainingMs(now)?.let { now + it }
                     DownloadState.update { s ->
                         s.copy(
+                            estimatedEndAt = endAt ?: s.estimatedEndAt,
                             progress = if (isProgressLine) progress.coerceIn(0f, 100f) else s.progress,
                             etaSec = if (isProgressLine) eta else s.etaSec,
                             log = if (isProgressLine || line.isBlank()) s.log else (s.log + line).takeLast(150),
@@ -245,7 +257,8 @@ class DownloadService : Service() {
 
         finishWithResult(
             JobResult(playlistTitle, saved, skipped, errors.toList(),
-                "Music/${MediaPublisher.ROOT_NAME}" + (playlistTitle?.let { "/$it" } ?: ""), cancelled, hint)
+                "Music/${MediaPublisher.ROOT_NAME}" + (playlistTitle?.let { "/$it" } ?: ""), cancelled, hint,
+                elapsedSec = (System.currentTimeMillis() - DownloadState.state.value.jobStartedAt) / 1000)
         )
     }
 
@@ -292,10 +305,12 @@ class DownloadService : Service() {
             if (s.itemTotal > 0) append("${s.itemIndex}/${s.itemTotal}곡 · ")
             append(s.currentTrack ?: s.stage.ifEmpty { "준비 중…" })
         }
+        val remain = s.totalRemainingSec(System.currentTimeMillis())
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_download)
             .setContentTitle(title)
             .setContentText(text)
+            .setSubText(remain?.let { "${formatDuration(it)} 남음" })
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setProgress(1000, (s.overall * 1000).toInt(), s.itemTotal == 0 && s.progress == 0f)

@@ -13,6 +13,7 @@ data class JobResult(
     val folder: String,
     val cancelled: Boolean,
     val hint: String?,
+    val elapsedSec: Long = 0,
 )
 
 data class UiState(
@@ -29,10 +30,15 @@ data class UiState(
     val currentTrack: String? = null,
     val stage: String = "",
     val progress: Float = 0f,      // 현재 곡 0~100
-    val etaSec: Long = 0,
+    val etaSec: Long = 0,           // 현재 곡 다운로드 남은 시간
+    val jobStartedAt: Long = 0L,    // 작업 시작 시각 (경과 시간 표시용)
+    val estimatedEndAt: Long? = null, // 재생목록 전체 완료 예상 시각 (null = 계산 중)
     val result: JobResult? = null,
     val log: List<String> = emptyList(),
 ) {
+    /** 전체 남은 시간(초). 완료 예상 시각에서 현재 시각을 빼서 매초 줄어듦 */
+    fun totalRemainingSec(now: Long): Long? = estimatedEndAt?.let { maxOf(0L, (it - now) / 1000) }
+
     /** 재생목록 전체 진행률 0~1 */
     val overall: Float
         get() = if (itemTotal <= 0) progress / 100f

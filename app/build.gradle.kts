@@ -11,8 +11,8 @@ android {
         applicationId = "com.ytpl.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     // 서명: GitHub Secrets(YTPL_KEYSTORE_PASSWORD 등)가 있으면 그 값을, 없으면 저장소에 포함된 키를 사용.
